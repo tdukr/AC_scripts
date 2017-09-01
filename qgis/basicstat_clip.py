@@ -4,21 +4,14 @@ from qgis.utils import *
 from qgis.gui import *
 import processing
 import os
- 
-# Set the directory where the input files are stored
-directory = "E:/desktop/BAGACHKA/OPORA/"
- 
-# Get the list of input files
-fileList = os.listdir(directory)
 
-file_output = open('E:/desktop/DataProcessing/basicstat.txt', 'w')
-
-# csv attributes names
-file_output.write('name;features_obl;features_1buff;features_2buff\n')
  
-def clipper(fileList):
-    # Copy the features from all the files in a new list
-    for file in fileList:
+def clipper(directory, mask):
+    file_list = os.listdir(directory)
+    stats = open(directory + 'basicstat.txt', 'w')
+    stats.write('name;features_obl;features_1buff;features_2buff\n')
+
+    for file in file_list:
         if file.endswith('.shp'):
             layer = QgsVectorLayer(directory + file, file, 'ogr')
             
@@ -32,38 +25,22 @@ def clipper(fileList):
             layer.dataProvider().setEncoding(u'System')
             
             QgsMapLayerRegistry.instance().addMapLayer(layer)
-            
-            #count objects in region
-            count = 0
-            for f in layer.getFeatures():
-                count = count + 1
-            print file, 'containts ', count, 'features'
-            file_output.write(file + ';' + str(count) + ';')
-            
-            #clip layer by priority zone 1
-            processing.runalg("qgis:clip",directory + file,"E:/desktop/DataProcessing/shp/border/1_border_buff.shp","E:/desktop/DataProcessing/shp/clipped/1_" + file)
-            
-            clippedlayer = QgsVectorLayer("E:/desktop/DataProcessing/shp/clipped/1_" + file, file, 'ogr')
-            
+
+            # clip layer
+            processing.runalg("qgis:clip", directory + file, mask, directory + "clipped/" + file)
+            clippedlayer = QgsVectorLayer(directory + "clipped/" + file, file, 'ogr')
+
+            # count objects in region
+            stats.write(file + ';' + str(layer.getFeatures()) + ';')
+
             #count clipped objects
-            count = 0
-            for f in clippedlayer.getFeatures():
-                count = count + 1
-            print '1_' + file, 'containts ', count, 'features'
-            file_output.write(str(count) + ';')
-            
-            #clip layer by priority zone 2
-            processing.runalg("qgis:clip",directory + file,"E:/desktop/DataProcessing/shp/border/2_border_buff.shp","E:/desktop/DataProcessing/shp/clipped/2_" + file)
-            
-            clipped_2layer = QgsVectorLayer("E:/desktop/DataProcessing/shp/clipped/2_" + file, file, 'ogr')
-            
+            stats.write(str(clippedlayer.getFeatures()) + ';')
+
             #count clipped objects
-            count = 0
-            for f in clipped_2layer.getFeatures():
-                count = count + 1
-            print '2_' + file, 'containts ', count, 'features'
-            file_output.write(str(count) + '\n')
-            
-clipper(fileList)
-file_output.close()
-#def Clipper()
+            stats.write(str(clipped_2layer.getFeatures()) + '\n')
+    stats.close()
+
+
+dir_to_clip = "osm/"
+clip_mask = "area/reg_buff.shp"
+clipper(dir_to_clip, clip_mask)
