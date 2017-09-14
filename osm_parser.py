@@ -8,14 +8,16 @@ import geojson
 inshp = "area/reg_buff.shp"
 sf = shapefile.Reader(inshp)
 bbox = sf.bbox
-in_tags = [['natural', ['natural','name','amenity'], ['geological', 'landcover', 'waterway']],
+in_tags = [['boundary', ['boundary', 'name', 'admin_level', 'place', 'koatuu', 'population'], []],
+           ['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover', 'waterway']],
            ['building', ['building', 'name', 'amenity'], ['shop', 'tourism']],
-           ['boundary', ['boundary','name','admin_level','place','koatuu','population'], []],
-            ['landuse', ['landuse','name','amenity'], ['aeroway', 'leisure', 'tourism']],
-            ['highway', ['highway','name','amenity','int_ref','surface'], ['railway', 'trafic_sign','public_transport']],
-            ['man_made', ['man_made','name','amenity',], ['power', 'office', 'shop', 'leisure', 'tourism', 'historic']],
-            ['place', ['place','name','koatuu','population'], []],
-            ['natural', ['natural','name','amenity'], ['geological', 'landcover']]]
+           ['landuse', ['landuse', 'name', 'amenity'], ['aeroway', 'leisure', 'tourism']],
+           ['highway', ['highway', 'name', 'amenity', 'int_ref', 'surface'],
+            ['railway', 'trafic_sign', 'public_transport']],
+           ['man_made', ['man_made', 'name', 'amenity', ],
+            ['power', 'office', 'shop', 'leisure', 'tourism', 'historic']],
+           ['place', ['place', 'name', 'koatuu', 'population'], []],
+           ['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover']]]
 
 
 def convert_int_none(x):
@@ -99,22 +101,35 @@ def parse_osm(tag, schema, additional_tags):
         res['rel'].extend(ares['rel'])
 
     objs = {'Point': {}, 'LineString': {'coords': [], 'params': []}, 'Polygon': {'coords': [], 'params': []},
-            'MultiPolygon': {}}
+            'MultiPolygon': {'coords': [], 'params': []}, 'MultiLineString': {'coords': [], 'params': []}}
+    #Points
     objs['Point']['coords'] = [[float(node.lon), float(node.lat)] for node in res['node'].nodes]
     objs['Point']['params'] = [get_params(node, schema, additional_tags) for node in res['node'].nodes]
-    objs['MultiPolygon']['coords'] = [
-        [[[[float(node.lon), float(node.lat)] for node in way.nodes]] for way in rres.ways] for rres in
-        res['rel']]  # has len(rel['coords']) objects; each has len(rel['coords'][i]) ways
-    objs['MultiPolygon']['params'] = [get_params(rres.relations[0], schema, additional_tags) for rres in
-                                      res['rel']]  # here rres represents only one relation/MultiPolygon object
+    #LineStrings and Polygons
     for way in res['way'].ways:
-        coord = [[float(node.lon), float(node.lat)] for node in way.nodes]
-        if all_unique(coord):
-            objs['LineString']['coords'].append(coord)  # if all points in the 'way' object are unique
+        crd = [[float(node.lon), float(node.lat)] for node in way.nodes]
+        if all_unique(crd):
+            objs['LineString']['coords'].append(crd)  # if all points in the 'way' object are unique
             objs['LineString']['params'].append(get_params(way, schema, additional_tags))
         else:  # if there is a shared point
-            objs['Polygon']['coords'].append([coord])
+            objs['Polygon']['coords'].append([crd])
             objs['Polygon']['params'].append(get_params(way, schema, additional_tags))
+    #MultiLineStrings and MultiPolygons
+    for rres in res['rel']:
+        mline = []
+        mpoly = []
+        for way in rres.ways:
+            crd = [[float(node.lon), float(node.lat)] for node in way.nodes]
+            if all_unique(crd):
+                mline.append(crd)
+            else:
+                mpoly.append([crd])
+        if mpoly:
+            objs['MultiPolygon']['coords'].append(mpoly)
+            objs['MultiPolygon']['params'].append(get_params(rres.relations[0], schema, additional_tags))
+        if mline:
+            objs['MultiLineString']['coords'].append(mline)
+            objs['MultiLineString']['params'].append(get_params(rres.relations[0], schema, additional_tags))
 
     # export json
     schema = list(map(lambda x: x[:10], schema))  # shorten field names to 10 characters
@@ -138,3 +153,4 @@ def parse_osm(tag, schema, additional_tags):
 
 for in_tag in in_tags:
     parse_osm(in_tag[0], in_tag[1], in_tag[2])
+    break
