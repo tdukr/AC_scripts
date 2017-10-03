@@ -1,15 +1,15 @@
 import overpy
 import shapefile
 import time
-import json
+import geojson
 
 
 inshp = "area/reg_buff.shp"
 sf = shapefile.Reader(inshp)
 bbox = sf.bbox
-in_tags = [['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover', 'waterway'], 1],
+in_tags = [['building', ['building', 'name', 'amenity'], ['shop', 'tourism'], 0],
+           ['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover', 'waterway'], 0],
            ['boundary', ['boundary', 'name', 'admin_level', 'place', 'koatuu', 'population'], [], 0],
-           ['building', ['building', 'name', 'amenity'], ['shop', 'tourism'], 1],
            ['landuse', ['landuse', 'name', 'amenity'], ['aeroway', 'leisure', 'tourism'], 0],
            ['highway', ['highway', 'name', 'amenity', 'int_ref', 'surface'],
             ['railway', 'trafic_sign', 'public_transport'], 0],
@@ -29,7 +29,7 @@ def convert_int_none(x):
         return x
 
 
-def get_osm(tag):
+def get_osm(tag, yeskey=0, maintag=0):
     """
     requests data from OSM using Overpass API
     :param tag: OSM tag
@@ -37,6 +37,10 @@ def get_osm(tag):
     """
     query = lambda rel_type: api.query("""({}({},{},{},{}) [{}];);(._;>;);out;"""
                                        .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2], tag.replace("'", '"')))
+    if yeskey:
+        query = lambda rel_type: api.query("""({}({},{},{},{}) [{}][{}='yes'];);(._;>;);out;"""
+                                           .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2],\
+                                                   tag.replace("'", '"'), maintag.replace("'", '"'),))
 
     def query_rels(ids):
         while True:
@@ -86,23 +90,17 @@ def parse_osm(tag, schema, additional_tags, yes_key):
     :param additional_tags: other related OSM tags for this tag
     """
     # get all results for this key/tag and expand them with results from additional tags
+    print('----' + tag + '----')
+    print('Downloading OSM data...')
     res = get_osm(tag)
     for atag in additional_tags:
-        ares = get_osm(atag)  # {'node' : overpy.Result, 'way': overpy.Result, 'rel': [....]} for each additional tag
-        if yes_key:
-            for node in ares['node'].nodes:
-                if node.tags.get(tag) != 'yes':
-                    ares['node'].remove(node)
-            for way in ares['way'].ways:
-                if way.tags.get(tag) != 'yes':
-                    ares['way'].remove(way)
-            for rel in ares['rel']:
-                if rel.tags.get(tag) != 'yes':
-                    ares['rel'].remove(rel)
+        ares = get_osm(atag, yes_key, tag)  # {'node' : overpy.Result, 'way': overpy.Result, 'rel': [....]} for each additional tag
         res['node'].expand(ares['node'])
         res['way'].expand(ares['way'])
         res['rel'].extend(ares['rel'])
+    print('Done')
 
+    print('Obtaining geometry and key parameters...')
     objs = {'Point': {}, 'LineString': {'coords': [], 'params': []}, 'Polygon': {'coords': [], 'params': []},
             'MultiPolygon': {'coords': [], 'params': []}, 'MultiLineString': {'coords': [], 'params': []}}
     #Points
@@ -133,8 +131,9 @@ def parse_osm(tag, schema, additional_tags, yes_key):
         if mline:
             objs['MultiLineString']['coords'].append(mline)
             objs['MultiLineString']['params'].append(get_params(rres.relations[0], schema, additional_tags))
+    print('Done')
 
-    # export json
+    print('Exporting json files...')
     schema = list(map(lambda x: x[:10], schema))  # shorten field names to 10 characters
     schema[0] = 'type'  # rename the first field to 'type'
     for key in objs.keys():
@@ -151,8 +150,8 @@ def parse_osm(tag, schema, additional_tags, yes_key):
                         }
                 outjson['features'].append(feat)
             with open(outname, 'w') as outfile:
-                json.dump(outjson, outfile)
-
+                geojson.dump(outjson, outfile)
+    print('Done\n')
 
 for tt in in_tags:
     parse_osm(*tt)
