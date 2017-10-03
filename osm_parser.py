@@ -1,23 +1,22 @@
 import overpy
 import shapefile
-import urllib.request
 import time
-import geojson
+import json
 
 
 inshp = "area/reg_buff.shp"
 sf = shapefile.Reader(inshp)
 bbox = sf.bbox
-in_tags = [['boundary', ['boundary', 'name', 'admin_level', 'place', 'koatuu', 'population'], []],
-           ['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover', 'waterway']],
-           ['building', ['building', 'name', 'amenity'], ['shop', 'tourism']],
-           ['landuse', ['landuse', 'name', 'amenity'], ['aeroway', 'leisure', 'tourism']],
+in_tags = [['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover', 'waterway'], 1],
+           ['boundary', ['boundary', 'name', 'admin_level', 'place', 'koatuu', 'population'], [], 0],
+           ['building', ['building', 'name', 'amenity'], ['shop', 'tourism'], 1],
+           ['landuse', ['landuse', 'name', 'amenity'], ['aeroway', 'leisure', 'tourism'], 0],
            ['highway', ['highway', 'name', 'amenity', 'int_ref', 'surface'],
-            ['railway', 'trafic_sign', 'public_transport']],
-           ['man_made', ['man_made', 'name', 'amenity', ],
-            ['power', 'office', 'shop', 'leisure', 'tourism', 'historic']],
-           ['place', ['place', 'name', 'koatuu', 'population'], []],
-           ['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover']]]
+            ['railway', 'trafic_sign', 'public_transport'], 0],
+           ['man_made', ['man_made', 'name', 'amenity'],
+            ['power', 'office', 'shop', 'leisure', 'tourism', 'historic'], 0],
+           ['place', ['place', 'name', 'koatuu', 'population'], [], 0],
+           ]
 
 
 def convert_int_none(x):
@@ -49,7 +48,6 @@ def get_osm(tag):
     api = overpy.Overpass()
     while True:
         try:
-
             result = dict()
             result['node'] = query('node')
             result['way'] = query('way')
@@ -66,18 +64,13 @@ def get_params(obj, schema_fields, additional_tags):
     :param additional_tags: other tags related to this tag
     :return: attribute values for each complete object (e.g. node, way or a component-way in a relation)
     """
-    val = [obj.tags.get(tag) for tag in schema_fields]
-    if not val[2]:  # if 'amenity' value does not exist, check if the object is from additional tags
-        for t in additional_tags:
-            val[2] = obj.tags.get(t)  # amenity = value of the tag
-            if val[2]:
-                val[0] = t # type = name of the tag
-                break
-        if not val[2]:  # if (after the check) the object is still not from the additional tags
-            val[2] = ''
-            val[0] = ''
-    params = list(map(convert_int_none, val))  # try to convert to int and empty string/NULL
-    return params
+    params = [obj.tags.get(tag) for tag in schema_fields]
+    for t in additional_tags:       # if 'amenity' value does not exist, check if the object is from additional tags
+        params[2] = obj.tags.get(t)    # amenity = value of the tag
+        if params[2]:
+            params[0] = t              # type = name of the tag
+            break
+    return list(map(convert_int_none, params))  # try to convert to int and empty string/NULL
 
 
 def all_unique(in_list):
@@ -85,7 +78,7 @@ def all_unique(in_list):
     return not any(l in seen or seen.append(l) for l in in_list)
 
 
-def parse_osm(tag, schema, additional_tags):
+def parse_osm(tag, schema, additional_tags, yes_key):
     """
     Downloads, parsers OSM data and saves each geometry type with parameters to separate .geojson files
     :param tag: a string of an OSM tag
@@ -96,6 +89,16 @@ def parse_osm(tag, schema, additional_tags):
     res = get_osm(tag)
     for atag in additional_tags:
         ares = get_osm(atag)  # {'node' : overpy.Result, 'way': overpy.Result, 'rel': [....]} for each additional tag
+        if yes_key:
+            for node in ares['node'].nodes:
+                if node.tags.get(tag) != 'yes':
+                    ares['node'].remove(node)
+            for way in ares['way'].ways:
+                if way.tags.get(tag) != 'yes':
+                    ares['way'].remove(way)
+            for rel in ares['rel']:
+                if rel.tags.get(tag) != 'yes':
+                    ares['rel'].remove(rel)
         res['node'].expand(ares['node'])
         res['way'].expand(ares['way'])
         res['rel'].extend(ares['rel'])
@@ -148,9 +151,9 @@ def parse_osm(tag, schema, additional_tags):
                         }
                 outjson['features'].append(feat)
             with open(outname, 'w') as outfile:
-                geojson.dump(outjson, outfile)
+                json.dump(outjson, outfile)
 
 
-for in_tag in in_tags:
-    parse_osm(in_tag[0], in_tag[1], in_tag[2])
+for tt in in_tags:
+    parse_osm(*tt)
     break
