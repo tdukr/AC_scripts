@@ -7,7 +7,8 @@ import geojson
 inshp = "area/reg_buff.shp"
 sf = shapefile.Reader(inshp)
 bbox = sf.bbox
-in_tags = [['building', ['building', 'name', 'amenity'], ['shop', 'tourism'], 0],
+in_tags = [['amenity', ['amenity', 'name'], ['natural', 'building', 'landuse', 'boundary'], 2],
+           ['building', ['building', 'name', 'amenity'], [], 0],
            ['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover', 'waterway'], 0],
            ['boundary', ['boundary', 'name', 'admin_level', 'place', 'koatuu', 'population'], [], 0],
            ['landuse', ['landuse', 'name', 'amenity'], ['aeroway', 'leisure', 'tourism'], 0],
@@ -35,12 +36,24 @@ def get_osm(tag, yeskey=0, maintag=0):
     :param tag: OSM tag
     :return: dictionary {'node' : overpy.Result, 'way': overpy.Result, 'rel': [....]}
     """
-    query = lambda rel_type: api.query("""({}({},{},{},{}) [{}];);(._;>;);out;"""
-                                       .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2], tag.replace("'", '"')))
-    if yeskey:
+    if yeskey == 0:
+        query = lambda rel_type: api.query("""({}({},{},{},{}) [{}];);(._;>;);out;"""
+                                           .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2], tag.replace("'", '"')))
+    elif yeskey == 1:
+        #asks that maintag for this tag == 'yes'
         query = lambda rel_type: api.query("""({}({},{},{},{}) [{}][{}='yes'];);(._;>;);out;"""
                                            .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2],\
                                                    tag.replace("'", '"'), maintag.replace("'", '"'),))
+    elif yeskey == 2:
+        #asks for objects that do not have tags from additional_tags (here tag is a list of them)
+        def query(rel_type):
+            qry = """({}({},{},{},{})[{}]"""\
+                    .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2],maintag.replace("'", '"'))
+            for t in tag:
+                t = t.replace("'", '"')
+                qry += '[{}!~".*"]'.format(t)
+            qry += """;);(._;>;);out;"""
+            return api.query(qry)
 
     def query_rels(ids):
         while True:
@@ -61,20 +74,23 @@ def get_osm(tag, yeskey=0, maintag=0):
             time.sleep(4)  # time delay for the next query 3 seconds in case of many requests
 
 
-def get_params(obj, schema_fields, additional_tags):
+def get_params(obj, schema_fields, main_tag, additional_tags):
     """
     :param obj: an overpy node/way/relation object
     :param schema: a list of keys for this tag
     :param additional_tags: other tags related to this tag
     :return: attribute values for each complete object (e.g. node, way or a component-way in a relation)
     """
-    params = [obj.tags.get(tag) for tag in schema_fields]
-    for t in additional_tags:       # if 'amenity' value does not exist, check if the object is from additional tags
-        params[2] = obj.tags.get(t)    # amenity = value of the tag
-        if params[2]:
-            params[0] = t              # type = name of the tag
-            break
-    return list(map(convert_int_none, params))  # try to convert to int and empty string/NULL
+    if main_tag == 'amenity':
+        return list(map(convert_int_none, [obj.tags.get(tag) for tag in schema_fields]))
+    else:
+        params = [obj.tags.get(tag) for tag in schema_fields]
+        for t in additional_tags:       # if 'amenity' value does not exist, check if the object is from additional tags
+            params[2] = obj.tags.get(t)    # amenity = value of the tag
+            if params[2]:
+                params[0] = t              # type = name of the tag
+                break
+        return list(map(convert_int_none, params))  # try to convert to int and empty string/NULL
 
 
 def all_unique(in_list):
@@ -93,8 +109,14 @@ def parse_osm(tag, schema, additional_tags, yes_key):
     print('----' + tag + '----')
     print('Downloading OSM data...')
     res = get_osm(tag)
-    for atag in additional_tags:
-        ares = get_osm(atag, yes_key, tag)  # {'node' : overpy.Result, 'way': overpy.Result, 'rel': [....]} for each additional tag
+    if yes_key != 2:
+        for atag in additional_tags:
+            ares = get_osm(atag, yes_key, tag)  # {'node' : overpy.Result, 'way': overpy.Result, 'rel': [....]} for each additional tag
+            res['node'].expand(ares['node'])
+            res['way'].expand(ares['way'])
+            res['rel'].extend(ares['rel'])
+    else:
+        ares = get_osm(additional_tags, yes_key, tag)  #pass a list of keys for a query in atag value
         res['node'].expand(ares['node'])
         res['way'].expand(ares['way'])
         res['rel'].extend(ares['rel'])
@@ -105,16 +127,16 @@ def parse_osm(tag, schema, additional_tags, yes_key):
             'MultiPolygon': {'coords': [], 'params': []}, 'MultiLineString': {'coords': [], 'params': []}}
     #Points
     objs['Point']['coords'] = [[float(node.lon), float(node.lat)] for node in res['node'].nodes]
-    objs['Point']['params'] = [get_params(node, schema, additional_tags) for node in res['node'].nodes]
+    objs['Point']['params'] = [get_params(node, schema, tag, additional_tags) for node in res['node'].nodes]
     #LineStrings and Polygons
     for way in res['way'].ways:
         crd = [[float(node.lon), float(node.lat)] for node in way.nodes]
         if all_unique(crd):
             objs['LineString']['coords'].append(crd)  # if all points in the 'way' object are unique
-            objs['LineString']['params'].append(get_params(way, schema, additional_tags))
+            objs['LineString']['params'].append(get_params(way, schema, tag, additional_tags))
         else:  # if there is a shared point
             objs['Polygon']['coords'].append([crd])
-            objs['Polygon']['params'].append(get_params(way, schema, additional_tags))
+            objs['Polygon']['params'].append(get_params(way, schema, tag, additional_tags))
     #MultiLineStrings and MultiPolygons
     for rres in res['rel']:
         mline = []
@@ -127,10 +149,10 @@ def parse_osm(tag, schema, additional_tags, yes_key):
                 mpoly.append([crd])
         if mpoly:
             objs['MultiPolygon']['coords'].append(mpoly)
-            objs['MultiPolygon']['params'].append(get_params(rres.relations[0], schema, additional_tags))
+            objs['MultiPolygon']['params'].append(get_params(rres.relations[0], schema, tag, additional_tags))
         if mline:
             objs['MultiLineString']['coords'].append(mline)
-            objs['MultiLineString']['params'].append(get_params(rres.relations[0], schema, additional_tags))
+            objs['MultiLineString']['params'].append(get_params(rres.relations[0], schema, tag, additional_tags))
     print('Done')
 
     print('Exporting json files...')
@@ -139,7 +161,7 @@ def parse_osm(tag, schema, additional_tags, yes_key):
     for key in objs.keys():
         if objs[key]['coords']:  # if this geom type has any objects in this tag, create a geojson file
             outjson = {"type": "FeatureCollection", "features": []}
-            outname = tag + '_' + key + '.geojson'
+            outname = 'osm/' + tag + '_' + key + '.geojson'
             for i in range(len(objs[key]['coords'])):
                 feat = {'type': 'Feature',
                         'geometry': {
