@@ -7,8 +7,8 @@ import geojson
 inshp = "area/reg_buff.shp"
 sf = shapefile.Reader(inshp)
 bbox = sf.bbox
-in_tags = [['amenity', ['amenity', 'name'], ['natural', 'building', 'landuse', 'boundary'], 2],
-           ['building', ['building', 'name', 'amenity'], [], 0],
+in_tags = [['amenity', ['amenity', 'name', 'id', 'after_school', 'emergency'], ['natural', 'building', 'landuse', 'boundary'], 2],
+           ['building', ['building', 'name', 'amenity'], ['shop', 'tourism', 'leisure', 'sport'], 0],
            ['natural', ['natural', 'name', 'amenity'], ['geological', 'landcover', 'waterway'], 0],
            ['boundary', ['boundary', 'name', 'admin_level', 'place', 'koatuu', 'population'], [], 0],
            ['landuse', ['landuse', 'name', 'amenity'], ['aeroway', 'leisure', 'tourism'], 0],
@@ -18,7 +18,6 @@ in_tags = [['amenity', ['amenity', 'name'], ['natural', 'building', 'landuse', '
             ['power', 'office', 'shop', 'leisure', 'tourism', 'historic'], 0],
            ['place', ['place', 'name', 'koatuu', 'population'], [], 0],
            ]
-
 
 def convert_int_none(x):
     try:
@@ -38,19 +37,18 @@ def get_osm(tag, yeskey=0, maintag=0):
     """
     if yeskey == 0:
         query = lambda rel_type: api.query("""({}({},{},{},{}) [{}];);(._;>;);out;"""
-                                           .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2], tag.replace("'", '"')))
+                                           .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2], tag))
     elif yeskey == 1:
         #asks that maintag for this tag == 'yes'
         query = lambda rel_type: api.query("""({}({},{},{},{}) [{}][{}='yes'];);(._;>;);out;"""
                                            .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2],\
-                                                   tag.replace("'", '"'), maintag.replace("'", '"'),))
+                                                   tag, maintag.replace("'", '"'),))
     elif yeskey == 2:
         #asks for objects that do not have tags from additional_tags (here tag is a list of them)
         def query(rel_type):
             qry = """({}({},{},{},{})[{}]"""\
                     .format(rel_type, bbox[1], bbox[0], bbox[3], bbox[2],maintag.replace("'", '"'))
             for t in tag:
-                t = t.replace("'", '"')
                 qry += '[{}!~".*"]'.format(t)
             qry += """;);(._;>;);out;"""
             return api.query(qry)
@@ -104,6 +102,9 @@ def parse_osm(tag, schema, additional_tags, yes_key):
     :param tag: a string of an OSM tag
     :param schema: a list of strings of field names, which are OSM keys for this tag
     :param additional_tags: other related OSM tags for this tag
+    :param yes_key: introduces variations to the overpass query. 0 - general query;
+                    1 - asks that maintag for this tag == 'yes';
+                    2 - asks for objects that do not have tags from additional_tags
     """
     # get all results for this key/tag and expand them with results from additional tags
     print('----' + tag + '----')
@@ -156,7 +157,6 @@ def parse_osm(tag, schema, additional_tags, yes_key):
     print('Done')
 
     print('Exporting json files...')
-    schema = list(map(lambda x: x[:10], schema))  # shorten field names to 10 characters
     schema[0] = 'type'  # rename the first field to 'type'
     for key in objs.keys():
         if objs[key]['coords']:  # if this geom type has any objects in this tag, create a geojson file
