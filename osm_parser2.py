@@ -1,6 +1,5 @@
 import overpy
 import shapefile
-import csv
 import time
 import geojson
 
@@ -8,11 +7,12 @@ import geojson
 inshp = "area/reg_buff.shp"
 sf = shapefile.Reader(inshp)
 bbox = sf.bbox
-#with open('social_infrastructure_tags.csv', 'rb') as csvfile:
-#    tags_social = csv.reader(csvfile, delimiter=',', quotechar='"')
-
-in_tags = [['social', ["amenity", "shop", "building", "tourism", "leisure", '"landuse"="religious"',
-                        '"highway"="bus_stop"', "government", '"boundary"="protected_area"', '"office"="government"']]
+in_tags = [['infrastructure', ['"amenity"= "fire_station"', '"amenity"= "police"', '"amenity"= "bus_station"',
+                            '"amenity"= "fuel"', '"highway"="bus_stop"', '"shop"="car_repair"', '"amenity"="parking"',
+                               '"amenity"= "post_office"', '"building"="office"', '"office"="government"',
+                               '"government"="administrative"', '"amenity"="townhall"', '"boundary"="protected_area"',
+                               '"office"="government"', '"landuse"="industrial"', '"landuse"="commercial"',
+                               '"landuse"="farmyard"']]
             ]
 
 def get_osm(tag):
